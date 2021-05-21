@@ -22,8 +22,8 @@ RUN apt-get update && \
 ARG jdk_build
 RUN mkdir jdk-install && \
     cd jdk-install && \
-    wget $jdk_build && \
-    tar xzf *.tar.gz && \
+    wget -q --show-progress $jdk_build && \
+    tar xf *.tar.* && \
     mv jdk-* /opt/jdk && \
     cd .. && \
     rm -r jdk-install
@@ -48,6 +48,14 @@ RUN git clone --depth 1 --branch $k_version $k_git k && \
 # build k
 RUN cd k && mvn -T 1C package -DskipTests
 
+# strip symbols not used for relocation
+RUN cd /k/k-distribution/target/release/k && \
+    strip --strip-unneeded bin/* $(find lib/kllvm -name "*") | exit 0
+
+# remove some less used binaries
+RUN cd /k/k-distribution/target/release/k/bin/ && \
+    rm -f kore-format kore-prof kore-repl
+
 # pack a custom jvm with only the components we need
 RUN deps=$(jdeps --ignore-missing-deps --print-module-deps k/k-distribution/target/release/k/lib/kframework/java/*.jar) && \
     jlink --output /jre \
@@ -69,16 +77,13 @@ RUN apt-get update && \
     apt-get install --no-install-recommends -y \
         libc-dev flex bison z3 libjemalloc-dev \
         libgmp-dev libmpfr-dev libyaml-0-2 \
-        llvm-8 clang-8 lld-8 libstdc++-9-dev \
-        libtinfo-dev libffi-dev && \
-    rm -rf /var/lib/apt/lists/*
-
-RUN ln -s /usr/bin/clang-8 /usr/bin/gcc
+        llvm-8 clang-8 lld-8 libtinfo-dev libffi-dev && \
+    rm -rf /var/lib/apt/lists/* && \
+    ln -s /usr/bin/clang-8 /usr/bin/gcc
 
 COPY --from=build /jre /opt/jre
-ENV PATH="/opt/jre/bin:${PATH}"
-
 COPY --from=build /k/k-distribution/target/release/k/bin /opt/k/bin
 COPY --from=build /k/k-distribution/target/release/k/lib /opt/k/lib
 COPY --from=build /k/k-distribution/target/release/k/include /opt/k/include
-ENV PATH="/opt/k/bin:${PATH}"
+
+ENV PATH="/opt/k/bin:/opt/jre/bin:${PATH}"
